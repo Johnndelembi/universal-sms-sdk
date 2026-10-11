@@ -1,0 +1,116 @@
+name: SDKs
+
+on:
+  push:
+    branches: [main]
+    tags: ['sdk-v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - name: Check TypeScript declarations and examples
+        run: npm exec --yes --package=typescript@5.9.3 -- tsc --noEmit --strict --module nodenext --moduleResolution nodenext --target es2022 node/test/types.mts
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+        working-directory: python
+
+  packages:
+    needs: [node, python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify package versions and release tag
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: |
+          python - <<'PY'
+          import json, os, tomllib
+          from pathlib import Path
+          node = json.loads(Path('package.json').read_text())
+          python = tomllib.loads(Path('python/pyproject.toml').read_text())['project']
+          assert node['version'] == python['version'], 'SDK versions differ'
+          assert not os.environ['RELEASE_TAG'] or os.environ['RELEASE_TAG'] == 'sdk-v' + node['version'], 'Tag must match package versions'
+          assert Path('LICENSE').read_bytes() == Path('python/LICENSE').read_bytes(), 'SDK licenses differ'
+          PY
+      - run: python -m pip install build twine
+      - name: Build packages
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+          python -m build python --outdir dist
+          python -m twine check dist/*.whl dist/*.tar.gz
+      - name: Smoke-test npm tarball (CommonJS and ESM)
+        run: |
+          package_file="$(realpath dist/*.tgz)"
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          npm init -y
+          npm install "$package_file" --ignore-scripts
+          node -e "const {SmsClient,SmsError}=require('universal-sms-sdk'); if(new SmsClient({provider:'briq',apiKey:'key'}).provider !== 'briq' || typeof SmsError !== 'function') process.exit(1)"
+          node --input-type=module -e "import {SmsClient} from 'universal-sms-sdk'; if(new SmsClient({provider:'notify-africa',apiKey:'key'}).provider !== 'notify-africa') process.exit(1)"
+      - name: Smoke-test Python wheel and source distribution
+        run: |
+          wheel_file="$(realpath dist/*.whl)"
+          source_file="$(realpath dist/*.tar.gz)"
+          smoke_dir="$(mktemp -d)"
+          python -m venv "$smoke_dir/venv"
+          "$smoke_dir/venv/bin/python" -m pip install "$wheel_file"
+          cd "$smoke_dir"
+          "$smoke_dir/venv/bin/python" -c "from universal_sms import SmsClient, SmsError, SmsResult; assert SmsClient('briq', api_key='key').provider == 'briq'"
+          "$smoke_dir/venv/bin/python" -m pip install --force-reinstall "$source_file"
+          "$smoke_dir/venv/bin/python" -c "from universal_sms import SmsClient; assert SmsClient('nextsms', api_token='token').provider == 'nextsms'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-packages
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    needs: packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-packages
+          path: dist
+      - name: Attach packages to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes "Node.js and Python SDKs for Beem, Briq, NextSMS V2 and Notify Africa. See README.md for usage."
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber

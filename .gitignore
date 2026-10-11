@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+build/
+*.tgz
+.mypy_cache/
+.env
+.DS_Store

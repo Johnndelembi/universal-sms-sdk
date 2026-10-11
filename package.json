@@ -1,0 +1,41 @@
+{
+  "name": "universal-sms-sdk",
+  "version": "0.1.0",
+  "description": "One SMS API for Beem, Briq, NextSMS and Notify Africa",
+  "main": "node/index.cjs",
+  "types": "node/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./node/index.d.ts",
+      "default": "./node/index.cjs"
+    }
+  },
+  "files": [
+    "node/index.cjs",
+    "node/index.d.ts",
+    "LICENSE",
+    "RELEASING.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test node/test/client.test.cjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "sms",
+    "beem",
+    "briq",
+    "nextsms",
+    "notify-africa"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Johnndelembi/universal-sms-sdk.git"
+  },
+  "homepage": "https://github.com/Johnndelembi/universal-sms-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/Johnndelembi/universal-sms-sdk/issues"
+  }
+}

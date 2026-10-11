@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "universal-sms-sdk"
+version = "0.1.0"
+description = "One SMS API for Beem, Briq, NextSMS and Notify Africa"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+keywords = ["sms", "beem", "briq", "nextsms", "notify-africa"]
+
+[project.urls]
+Homepage = "https://github.com/Johnndelembi/universal-sms-sdk"
+Issues = "https://github.com/Johnndelembi/universal-sms-sdk/issues"
+
+[tool.setuptools.packages.find]
+include = ["universal_sms*"]
+
+[tool.setuptools.package-data]
+universal_sms = ["py.typed"]

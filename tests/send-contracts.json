@@ -1,0 +1,30 @@
+[
+  {
+    "provider": "beem", "path": "/v1/send",
+    "headers": {"authorization": "Basic a2V5OnNlY3JldA=="},
+    "payload": {"source_addr": "MYAPP", "encoding": 0, "schedule_time": "", "message": "Hello", "recipients": [{"recipient_id": 1, "dest_addr": "255712345678"}]},
+    "response": {"successful": true, "request_id": 31951, "message": "Message Submitted Successfully"},
+    "messageId": "31951", "correlationId": "31951", "status": "accepted"
+  },
+  {
+    "provider": "briq", "path": "/v1/message/send-instant",
+    "headers": {"x-api-key": "key", "x-app-id": "app"},
+    "payload": {"content": "Hello", "recipients": ["255712345678"], "sender_id": "MYAPP"},
+    "response": {"success": true, "job_id": "job-1", "status": "queued"},
+    "messageId": null, "correlationId": "job-1", "status": "accepted"
+  },
+  {
+    "provider": "nextsms", "path": "/api/sms/v2/text/single",
+    "headers": {"authorization": "Bearer token"},
+    "payload": {"from": "MYAPP", "to": "255712345678", "text": "Hello", "flash": 0, "reference": "order-1"},
+    "response": {"messages": [{"messageId": "next-1", "status": {"name": "PENDING_DISPATCHED"}}]},
+    "messageId": "next-1", "correlationId": "order-1", "status": "accepted"
+  },
+  {
+    "provider": "notify-africa", "path": "/api/v1/api/messages/send",
+    "headers": {"authorization": "Bearer key"},
+    "payload": {"phone_number": "255712345678", "message": "Hello", "sender_id": "MYAPP"},
+    "response": {"status": 202, "data": {"messageId": "notify-1", "status": "SENT"}},
+    "messageId": "notify-1", "correlationId": null, "status": "sent"
+  }
+]
