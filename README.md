@@ -1,17 +1,35 @@
 # Universal SMS SDK
 
-One small API for **Beem, Briq, NextSMS V2 and Notify Africa**, in Node.js and Python. Use your existing provider account and credentials. No gateway deployment, database or runtime dependencies are required. These are independent community SDKs, not official provider SDKs.
+One small API for **Beem, Briq, NextSMS V2 and Notify Africa**, in **Node.js, Python, Java and Go**. Use your existing provider account and credentials. No gateway deployment or database is required. Node.js, Python and Go use their standard libraries; Java uses Jackson for JSON. These are independent community SDKs, not official provider SDKs.
 
 ## Install from GitHub
 
-Node.js 20+ and Python 3.10+ are supported. Both installs require Git. Pin a release tag or commit for reproducible deployments, for example `#sdk-v0.1.0` in npm or `@sdk-v0.1.0` before the Python URL fragment once that tag exists.
+Supported runtimes: Node.js 20+, Python 3.10+, Java 17+ and Go 1.22+. Node and Python Git installs require Git. Pin a release tag or commit for reproducible deployments, for example `#sdk-v0.1.0` in npm or `@sdk-v0.1.0` before the Python URL fragment once that tag exists.
 
 ```bash
 npm install github:Johnndelembi/universal-sms-sdk
 python -m pip install 'universal-sms-sdk @ git+https://github.com/Johnndelembi/universal-sms-sdk.git#subdirectory=python'
+go get github.com/Johnndelembi/universal-sms-sdk@main
 ```
 
 The repository's root `package.json` exposes the Node SDK. Python's `pyproject.toml` is in `python`. See [npm Git installs](https://docs.npmjs.com/cli/v11/commands/npm-install/) and [pip subdirectory installs](https://pip.pypa.io/en/stable/topics/vcs-support/).
+
+Java installs through [JitPack](https://docs.jitpack.io/); add the repository and dependency to your Maven `pom.xml`. Gradle and local-build instructions are in [java/README.md](java/README.md).
+
+```xml
+<repositories>
+  <repository><id>jitpack.io</id><url>https://jitpack.io</url></repository>
+</repositories>
+<dependencies>
+  <dependency>
+    <groupId>com.github.Johnndelembi.universal-sms-sdk</groupId>
+    <artifactId>universal-sms-sdk-java</artifactId>
+    <version>main-SNAPSHOT</version>
+  </dependency>
+</dependencies>
+```
+
+`main-SNAPSHOT` follows the branch; replace it with a commit hash or release tag for production. JitPack builds the first requested version on demand. Go records a reproducible pseudo-version in `go.mod` when installing `@main`; tagged Go releases use `vX.Y.Z`.
 
 ## Send an SMS
 
@@ -50,6 +68,48 @@ print(message.message_id, message.status)
 
 Node uses async methods. Python is synchronous and uses only the standard library; in an asyncio application call it with `await asyncio.to_thread(sms.send, to=..., text=...)`.
 
+```java
+import io.github.johnndelembi.sms.SmsClient;
+import io.github.johnndelembi.sms.SmsResult;
+
+SmsClient sms = SmsClient.builder("beem")
+    .apiKey(System.getenv("BEEM_API_KEY"))
+    .secretKey(System.getenv("BEEM_SECRET_KEY"))
+    .senderId(System.getenv("SMS_SENDER_ID"))
+    .build();
+
+SmsResult message = sms.send("+255712345678", "Your order is ready.");
+System.out.println(message.messageId() + " " + message.status());
+```
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+    sms "github.com/Johnndelembi/universal-sms-sdk"
+)
+
+func main() {
+    client, err := sms.NewClient(sms.Config{
+        Provider: sms.Beem,
+        APIKey: os.Getenv("BEEM_API_KEY"),
+        SecretKey: os.Getenv("BEEM_SECRET_KEY"),
+        SenderID: os.Getenv("SMS_SENDER_ID"),
+    })
+    if err != nil { log.Fatal(err) }
+    message, err := client.Send(context.Background(), sms.Message{
+        To: "+255712345678", Text: "Your order is ready.",
+    })
+    if err != nil { log.Fatal(err) }
+    log.Println(message.MessageID, message.Status)
+}
+```
+
+Java is synchronous and independent of Spring Boot. Go accepts a `context.Context` for every HTTP operation; reuse a client across concurrent sends. Configuration uses Java builder methods (`apiKey`, `apiToken`, `appId`, `senderId`) and Go fields (`APIKey`, `APIToken`, `AppID`, `SenderID`) with the same provider requirements below.
+
 ## Switch providers
 
 Change the client configuration; keep your send call. Credentials are passed explicitly rather than loaded from guessed environment variable names.
@@ -76,7 +136,7 @@ message = sms.send(to="+255712345678", text="Hello", reference="order-123")
 
 ## Results and errors
 
-Node returns a plain object; Python returns an immutable typed `SmsResult`.
+Node returns a plain object; Python returns an immutable typed `SmsResult`; Java returns a `SmsResult` record; Go returns a `sms.Result` struct. Java accessors use the Node column names (`messageId()`); Go fields are `Provider`, `MessageID`, `CorrelationID`, `Status`, `ProviderStatus` and `EventID`. Unavailable IDs are `null` in Java and empty strings in Go.
 
 | Node | Python | Meaning |
 |---|---|---|
@@ -89,7 +149,7 @@ Node returns a plain object; Python returns an immutable typed `SmsResult`.
 
 `accepted` and `sent` do not confirm handset delivery. A valid response carrying a rejected/failed delivery status returns `status: 'failed'` with its ID; inspect status as well as catching exceptions. Unknown provider status values remain `unknown`.
 
-HTTP, network and malformed-response errors raise `SmsError`. Inspect `provider`, `statusCode` / `status_code` and `outcomeUnknown` / `outcome_unknown`. Input and webhook validation raises `TypeError` in Node and `ValueError` in Python. Error messages exclude credentials and provider response bodies.
+HTTP, network and malformed-response errors raise `SmsError`. Inspect `provider`, `statusCode` / `status_code` and `outcomeUnknown` / `outcome_unknown`. Input and webhook validation raises `TypeError` in Node and `ValueError` in Python. Java throws `SmsException` with `provider()`, `statusCode()` and `outcomeUnknown()`; input/webhook validation throws `IllegalArgumentException`. Go returns errors: use `errors.As(err, &failure)` with `var failure *sms.Error` to inspect `Provider`, `StatusCode` (zero for non-HTTP errors) and `OutcomeUnknown`. A context cancelled before sending returns the context error without making a request; in-flight cancellation preserves `OutcomeUnknown` and supports `errors.Is(err, context.Canceled)` / `context.DeadlineExceeded`. Error messages exclude credentials and provider response bodies.
 
 ```js
 try {
@@ -130,7 +190,15 @@ const delivery = await sms.getStatus(message.messageId, { to: '+255712345678' })
 delivery = sms.get_status(message.message_id, to="+255712345678")
 ```
 
-Notify Africa: call `sms.getStatus(message.messageId)` / `sms.get_status(message.message_id)` without the destination. Briq and NextSMS status lookup is not implemented; use the webhook methods below.
+```java
+SmsResult delivery = sms.getStatus(message.messageId(), "+255712345678");
+```
+
+```go
+delivery, err := client.GetStatus(ctx, message.MessageID, "+255712345678")
+```
+
+Notify Africa: Java uses `sms.getStatus(message.messageId())`; Go uses `client.GetStatus(ctx, message.MessageID, "")`. Node/Python: call `sms.getStatus(message.messageId)` / `sms.get_status(message.message_id)` without the destination. Briq and NextSMS status lookup is not implemented; use the webhook methods below.
 
 ## Delivery webhooks
 
@@ -152,13 +220,15 @@ sms = SmsClient("briq", api_key=os.environ["BRIQ_API_KEY"],
 event = sms.parse_webhook(raw_body, signature_header)
 ```
 
+Java: configure `.webhookSecret(...)` and call `sms.parseWebhook(rawBody, signatureHeader)`; Go: configure `WebhookSecret` and call `client.ParseWebhook(rawBody, signatureHeader)`. For NextSMS, configure `.webhookToken(...)` / `WebhookToken`, then call `sms.parseWebhook(rawBody)` / `client.ParseWebhook(rawBody, "")`.
+
 Briq requires a configured signing secret and an HMAC-SHA256 signature. Unsigned webhooks are rejected. NextSMS uses `webhookToken` / `webhook_token` from the client configuration and verifies the JSON `token` field with a constant-time comparison. Call `parseWebhook(rawBody)` / `parse_webhook(raw_body)` for NextSMS. Verification authenticates a webhook; store event IDs or your message/status key to handle replayed delivery events.
 
 ## Configuration and scope
 
 `baseUrl` / `base_url` overrides the sending API host. Beem's separate DLR host uses `deliveryReportsBaseUrl` / `delivery_reports_base_url`. URLs must use HTTPS, except loopback HTTP for local tests; URL credentials, queries and fragments are rejected. Do not use arbitrary user input for these settings.
 
-Timeout defaults to 30 seconds: Node's `timeoutMs` is a request deadline in milliseconds; Python's `timeout` is a socket-operation timeout in seconds, including response reads, not a total elapsed deadline. TLS certificate verification remains enabled.
+Timeout defaults to 30 seconds: Node's `timeoutMs` is a request deadline in milliseconds; Python's `timeout` is a socket-operation timeout in seconds, including response reads, not a total elapsed deadline. Java `.timeout(Duration)` and Go `Config.Timeout` set a total request deadline, including response reads; Go zero selects the default. Java restores the thread interrupt flag and Go respects context cancellation. TLS certificate verification remains enabled.
 
 Version 0.1 covers the single-recipient flows already established by the Java adapters, with the same status vocabulary. Beem uses the existing `encoding: 0` flow; Unicode-specific encoding, provider-native batches, scheduling, balance queries, campaigns, OTP workflows and Python async transport are deferred. Provider/account restrictions on countries, sender IDs, content length and encoding still apply. Do not implement a bulk helper by silently looping and retrying paid sends.
 
@@ -166,21 +236,24 @@ Official references: [Beem SMS](https://docs.beem.africa/guides/sms/index), [Bee
 
 ## Implementation plan and maintenance
 
-1. **Done:** package two direct clients in an independent SDK repository, based on the existing messaging-api provider adapters.
+1. **Done:** package four direct clients in an independent SDK repository, based on the existing messaging-api provider adapters.
 2. **Done:** mirror all four send payloads/authentication schemes, normalize results, validate inputs and preserve ambiguous outcomes.
 3. **Done:** implement Beem/Notify Africa status lookups and verified Briq/NextSMS webhook parsing.
-4. **Done:** exercise both languages against the same provider fixtures and real local HTTP servers; package and smoke-test installed artifacts.
+4. **Done:** exercise all four languages against the same provider fixtures and real local HTTP servers; package and smoke-test installed artifacts.
 5. **Ready to run on GitHub:** SDK CI and tagged release packaging; follow [RELEASING.md](RELEASING.md).
 6. **Before production release:** verify each adapter with an authorized test account, confirm approved senders/encoding, and compare real responses to fixtures. This remains a live-account check.
 
-When provider contracts change, update both clients and the shared request fixtures together. Check the original Java adapters for drift too.
+When provider contracts change, update all four clients and the shared request fixtures together. Check the original Java adapters for drift too.
 
 Run from this repository:
 
 ```bash
 npm test
-cd python
-python -m unittest discover -s tests -v
+(cd python && python -m unittest discover -s tests -v)
+mvn -B install
+mvn -B -f java/smoke/pom.xml test
+go test -race ./...
+go vet ./...
 ```
 
 MIT licensed; see [LICENSE](LICENSE).

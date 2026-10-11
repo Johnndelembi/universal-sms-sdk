@@ -3,7 +3,7 @@ name: SDKs
 on:
   push:
     branches: [main]
-    tags: ['sdk-v*']
+    tags: ['v*', 'sdk-v*']
   pull_request:
 
 permissions:
@@ -37,8 +37,38 @@ jobs:
       - run: python -m unittest discover -s tests -v
         working-directory: python
 
+  java:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - run: mvn -B install
+      - name: Smoke-test installed Java dependency
+        run: mvn -B -f java/smoke/pom.xml test
+
+  go:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ['1.22.x', 'stable']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - run: go test -race ./...
+      - run: go vet ./...
+
   packages:
-    needs: [node, python]
+    needs: [node, python, java, go]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,17 +78,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
       - name: Verify package versions and release tag
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: |
           python - <<'PY'
-          import json, os, tomllib
+          import json, os, tomllib, xml.etree.ElementTree as ET
           from pathlib import Path
           node = json.loads(Path('package.json').read_text())
           python = tomllib.loads(Path('python/pyproject.toml').read_text())['project']
-          assert node['version'] == python['version'], 'SDK versions differ'
-          assert not os.environ['RELEASE_TAG'] or os.environ['RELEASE_TAG'] == 'sdk-v' + node['version'], 'Tag must match package versions'
+          ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+          root = ET.parse('pom.xml').getroot()
+          java = ET.parse('java/pom.xml').getroot()
+          consumer = ET.parse('java/smoke/pom.xml').getroot()
+          assert node['version'] == python['version'] == root.find('m:version', ns).text == java.find('m:parent/m:version', ns).text == consumer.find('m:dependencies/m:dependency/m:version', ns).text, 'SDK versions differ'
+          assert not os.environ['RELEASE_TAG'] or os.environ['RELEASE_TAG'] in ('sdk-v' + node['version'], 'v' + node['version']), 'Tag must match package versions'
           assert Path('LICENSE').read_bytes() == Path('python/LICENSE').read_bytes(), 'SDK licenses differ'
           PY
       - run: python -m pip install build twine
@@ -68,6 +107,11 @@ jobs:
           npm pack --pack-destination dist
           python -m build python --outdir dist
           python -m twine check dist/*.whl dist/*.tar.gz
+          mvn -B install
+          mvn -B -f java/smoke/pom.xml test
+          cp java/target/universal-sms-sdk-java-*.jar dist/
+          cp java/pom.xml dist/universal-sms-sdk-java.pom
+          cp pom.xml dist/universal-sms-sdk-parent.pom
       - name: Smoke-test npm tarball (CommonJS and ESM)
         run: |
           package_file="$(realpath dist/*.tgz)"
@@ -94,7 +138,7 @@ jobs:
           path: dist/*
 
   release:
-    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    if: startsWith(github.ref, 'refs/tags/sdk-v') || startsWith(github.ref, 'refs/tags/v')
     needs: packages
     runs-on: ubuntu-latest
     permissions:
@@ -111,6 +155,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes "Node.js and Python SDKs for Beem, Briq, NextSMS V2 and Notify Africa. See README.md for usage."
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes "Node.js, Python, Java and Go SDKs for Beem, Briq, NextSMS V2 and Notify Africa. See README.md for usage."
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
